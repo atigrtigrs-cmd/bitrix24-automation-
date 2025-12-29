@@ -6,7 +6,7 @@ import logging
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 
-WEBHOOK_URL = "https://hr-adv.bitrix24.ru/rest/1/9cwtdt81vohhonat/"
+WEBHOOK_URL = "https://hr-adv.bitrix24.ru/rest/1/b38u96kcbwr7sc10/"
 
 # Timezone mapping for major Russian cities
 CITY_TIMEZONE_MAP = {

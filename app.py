@@ -170,8 +170,10 @@ def update_deal(deal_id, fields):
     
     return False
 
+@app.route('/', methods=['POST', 'GET'])
 @app.route('/webhook', methods=['POST', 'GET'])
 def webhook():
+
     """Handle Bitrix24 webhook for deal creation/update"""
     try:
         # Get deal ID from request

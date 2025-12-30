@@ -1,0 +1,29 @@
+name: Check Stale Deals
+
+on:
+  schedule:
+    # Runs at 07:00 UTC (10:00 Moscow time) every weekday (Monday-Friday)
+    - cron: '0 7 * * 1-5'
+  workflow_dispatch: # Allows manual trigger from GitHub UI
+
+jobs:
+  check-stale-deals:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Check stale deals and send notifications
+        run: |
+          echo "Checking for stale deals..."
+          response=$(curl -s -w "\n%{http_code}" https://bitrix24-automation.onrender.com/check-stale-deals )
+          http_code=$(echo "$response" | tail -n1 )
+          body=$(echo "$response" | head -n-1)
+          
+          echo "Response: $body"
+          echo "HTTP Status: $http_code"
+          
+          if [ "$http_code" -eq 200 ]; then
+            echo "✅ Successfully checked stale deals"
+          else
+            echo "❌ Failed to check stale deals (HTTP $http_code )"
+            exit 1
+          fi

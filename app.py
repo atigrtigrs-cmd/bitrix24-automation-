@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 logging.basicConfig(level=logging.INFO)
 
 # Bitrix24 webhook URL
-WEBHOOK_URL = "https://hr-adv.bitrix24.ru/rest/1/68owo53rxcs5276q/"
+WEBHOOK_URL = "https://hr-adv.bitrix24.ru/rest/1/rk34vfgy3owygm3k/"
 
 app = Flask(__name__)
 

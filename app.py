@@ -175,10 +175,21 @@ def update_deal(deal_id, fields):
 def webhook():
 
     """Handle Bitrix24 webhook for deal creation/update"""
-    try:
-        # Get deal ID from request
+            # Get deal ID from request
         data = request.json if request.is_json else request.form.to_dict()
-        deal_id = data.get('FIELDS[ID]') or data.get('data[FIELDS][ID]') or data.get('deal_id')
+        
+        # Try different formats Bitrix24 might send
+        deal_id = None
+        
+        # Format 1: document_id[2] = "DEAL_123"
+        if 'document_id[2]' in data:
+            doc_id = data.get('document_id[2]', '')
+            if doc_id.startswith('DEAL_'):
+                deal_id = doc_id.replace('DEAL_', '')
+        
+        # Format 2: Standard webhook formats
+        if not deal_id:
+            deal_id = data.get('FIELDS[ID]') or data.get('data[FIELDS][ID]') or data.get('deal_id')
         
         if not deal_id:
             logging.warning(f"No deal ID in request: {data}")

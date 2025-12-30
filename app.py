@@ -1,18 +1,15 @@
 from flask import Flask, request, jsonify
 import requests
-import logging
 import re
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-
-# Bitrix24 webhook URL
-WEBHOOK_URL = "https://hr-adv.bitrix24.ru/rest/1/68owo53rxcs5276q/"
+import logging
 
 app = Flask(__name__)
+logging.basicConfig(level=logging.INFO)
 
-# City to timezone mapping
-CITY_TIMEZONES = {
+WEBHOOK_URL = "https://hr-adv.bitrix24.ru/rest/1/k108sy1elhe6hihc/"
+
+# Timezone mapping for major Russian cities
+CITY_TIMEZONE_MAP = {
     'москва': 'МСК (UTC+3)',
     'санкт-петербург': 'МСК (UTC+3)',
     'петербург': 'МСК (UTC+3)',
@@ -20,154 +17,158 @@ CITY_TIMEZONES = {
     'екатеринбург': 'ЕКБ (UTC+5)',
     'новосибирск': 'НСК (UTC+7)',
     'красноярск': 'КРС (UTC+7)',
-    'владивосток': 'ВЛД (UTC+10)',
     'иркутск': 'ИРК (UTC+8)',
+    'владивосток': 'ВЛД (UTC+10)',
     'хабаровск': 'ХБР (UTC+10)',
-    'омск': 'ОМС (UTC+6)',
+    'казань': 'МСК (UTC+3)',
+    'нижний новгород': 'МСК (UTC+3)',
     'челябинск': 'ЧЛБ (UTC+5)',
-    'казань': 'КЗН (UTC+3)',
-    'нижний новгород': 'НН (UTC+3)',
     'самара': 'СМР (UTC+4)',
-    'ростов': 'РСТ (UTC+3)',
+    'омск': 'ОМС (UTC+6)',
+    'ростов-на-дону': 'МСК (UTC+3)',
     'уфа': 'УФА (UTC+5)',
     'пермь': 'ПРМ (UTC+5)',
-    'воронеж': 'ВРН (UTC+3)',
+    'воронеж': 'МСК (UTC+3)',
     'волгоград': 'ВЛГ (UTC+3)',
-    'краснодар': 'КРД (UTC+3)',
+    'краснодар': 'МСК (UTC+3)',
     'саратов': 'СРТ (UTC+3)',
     'тюмень': 'ТЮМ (UTC+5)',
-    'тольятти': 'ТЛТ (UTC+4)',
-    'ижевск': 'ИЖВ (UTC+4)',
+    'тольятти': 'СМР (UTC+4)',
+    'ижевск': 'ИЖ (UTC+4)',
     'барнаул': 'БРН (UTC+7)',
-    'ульяновск': 'УЛН (UTC+4)',
+    'ульяновск': 'УЛЬ (UTC+4)',
     'иркутск': 'ИРК (UTC+8)',
-    'ярославль': 'ЯРС (UTC+3)',
-    'махачкала': 'МХЧ (UTC+3)',
+    'ярославль': 'МСК (UTC+3)',
+    'владимир': 'МСК (UTC+3)',
+    'махачкала': 'МСК (UTC+3)',
     'томск': 'ТМС (UTC+7)',
-    'оренбург': 'ОРБ (UTC+5)',
+    'оренбург': 'ОРН (UTC+5)',
     'кемерово': 'КМР (UTC+7)',
     'новокузнецк': 'НКЗ (UTC+7)',
-    'рязань': 'РЗН (UTC+3)',
+    'рязань': 'МСК (UTC+3)',
     'астрахань': 'АСТ (UTC+4)',
-    'пенза': 'ПНЗ (UTC+3)',
-    'липецк': 'ЛПЦ (UTC+3)',
-    'киров': 'КРВ (UTC+3)',
-    'чебоксары': 'ЧБК (UTC+3)',
-    'калининград': 'КЛД (UTC+2)',
-    'тула': 'ТЛ (UTC+3)',
-    'курск': 'КРС (UTC+3)',
-    'сочи': 'СЧИ (UTC+3)',
-    'ставрополь': 'СТВ (UTC+3)',
-    'улан-удэ': 'УУ (UTC+8)',
-    'тверь': 'ТВР (UTC+3)',
+    'пенза': 'МСК (UTC+3)',
+    'липецк': 'МСК (UTC+3)',
+    'киров': 'МСК (UTC+3)',
+    'чебоксары': 'МСК (UTC+3)',
+    'калининград': 'КЛН (UTC+2)',
+    'брянск': 'МСК (UTC+3)',
+    'курск': 'МСК (UTC+3)',
+    'иваново': 'МСК (UTC+3)',
     'магнитогорск': 'МГН (UTC+5)',
-    'иваново': 'ИВН (UTC+3)',
-    'брянск': 'БРН (UTC+3)',
-    'белгород': 'БЛГ (UTC+3)',
-    'сургут': 'СРГ (UTC+5)',
-    'владимир': 'ВЛД (UTC+3)',
-    'нижний тагил': 'НТГ (UTC+5)',
-    'архангельск': 'АРХ (UTC+3)',
-    'чита': 'ЧТ (UTC+9)',
-    'смоленск': 'СМЛ (UTC+3)',
-    'калуга': 'КЛГ (UTC+3)',
-    'волжский': 'ВЛЖ (UTC+3)',
+    'тверь': 'МСК (UTC+3)',
+    'ставрополь': 'МСК (UTC+3)',
+    'нижний тагил': 'ЕКБ (UTC+5)',
+    'белгород': 'МСК (UTC+3)',
+    'архангельск': 'МСК (UTC+3)',
+    'владикавказ': 'МСК (UTC+3)',
+    'калуга': 'МСК (UTC+3)',
+    'сочи': 'МСК (UTC+3)',
+    'смоленск': 'МСК (UTC+3)',
+    'волжский': 'ВЛГ (UTC+3)',
     'курган': 'КРГ (UTC+5)',
-    'орел': 'ОРЛ (UTC+3)',
-    'череповец': 'ЧРП (UTC+3)',
-    'владикавказ': 'ВКВ (UTC+3)',
-    'мурманск': 'МРМ (UTC+3)',
-    'саранск': 'СРН (UTC+3)',
-    'вологда': 'ВЛГ (UTC+3)',
-    'тамбов': 'ТМБ (UTC+3)',
-    'стерлитамак': 'СТР (UTC+5)',
-    'грозный': 'ГРЗ (UTC+3)',
-    'якутск': 'ЯКТ (UTC+9)',
-    'кострома': 'КСТ (UTC+3)',
-    'комсомольск-на-амуре': 'КМС (UTC+10)',
-    'петрозаводск': 'ПТЗ (UTC+3)',
-    'таганрог': 'ТГР (UTC+3)',
-    'нижневартовск': 'НВР (UTC+5)',
-    'йошкар-ола': 'ЙОЛ (UTC+3)',
-    'братск': 'БРТ (UTC+8)',
-    'новороссийск': 'НВР (UTC+3)',
-    'дзержинск': 'ДЗР (UTC+3)',
+    'орёл': 'МСК (UTC+3)',
+    'череповец': 'МСК (UTC+3)',
+    'вологда': 'МСК (UTC+3)',
+    'мурманск': 'МСК (UTC+3)',
+    'сургут': 'СРГ (UTC+5)',
+    'тамбов': 'МСК (UTC+3)',
+    'петрозаводск': 'МСК (UTC+3)',
+    'кострома': 'МСК (UTC+3)',
+    'нижневартовск': 'НВТ (UTC+5)',
 }
 
-def normalize_phone(phone):
-    """Normalize phone number to international format"""
+def clean_phone(phone):
+    """Remove all non-digit characters from phone number"""
     if not phone:
         return None
-    
-    # Remove all non-digit characters
-    digits = re.sub(r'\D', '', phone)
-    
-    # Handle Russian numbers
-    if digits.startswith('8') and len(digits) == 11:
-        digits = '7' + digits[1:]
-    elif digits.startswith('9') and len(digits) == 10:
-        digits = '7' + digits
-    
-    return digits
+    cleaned = re.sub(r'[^\d]', '', str(phone))
+    # Remove leading 8 or 7
+    if cleaned.startswith('8'):
+        cleaned = '7' + cleaned[1:]
+    elif not cleaned.startswith('7'):
+        cleaned = '7' + cleaned
+    return cleaned
 
-def get_deal_info(deal_id):
-    """Get deal information from Bitrix24"""
-    try:
-        response = requests.get(f"{WEBHOOK_URL}crm.deal.get", params={"ID": deal_id})
-        if response.status_code == 200:
-            data = response.json()
-            return data.get('result', {})
-    except Exception as e:
-        logging.error(f"Error getting deal info: {e}")
-    return None
-
-def get_contact_info(contact_id):
-    """Get contact information from Bitrix24"""
-    try:
-        response = requests.get(f"{WEBHOOK_URL}crm.contact.get", params={"ID": contact_id})
-        if response.status_code == 200:
-            data = response.json()
-            return data.get('result', {})
-    except Exception as e:
-        logging.error(f"Error getting contact info: {e}")
-    return None
-
-def update_contact(contact_id, fields):
-    """Update contact in Bitrix24"""
-    try:
-        response = requests.post(
-            f"{WEBHOOK_URL}crm.contact.update",
-            json={"ID": contact_id, "fields": fields}
-        )
-        return response.status_code == 200
-    except Exception as e:
-        logging.error(f"Error updating contact: {e}")
-        return False
-
-def update_deal(deal_id, fields):
-    """Update deal in Bitrix24"""
-    try:
-        response = requests.post(
-            f"{WEBHOOK_URL}crm.deal.update",
-            json={"ID": deal_id, "fields": fields}
-        )
-        return response.status_code == 200
-    except Exception as e:
-        logging.error(f"Error updating deal: {e}")
-        return False
-
-def get_timezone_from_city(city):
-    """Get timezone from city name"""
+def get_timezone_by_city(city):
+    """Get timezone by city name"""
     if not city:
         return None
     
     city_lower = city.lower().strip()
-    return CITY_TIMEZONES.get(city_lower)
+    return CITY_TIMEZONE_MAP.get(city_lower)
 
-@app.route('/health')
-def health():
-    """Health check endpoint"""
-    return jsonify({"status": "ok"})
+def get_contact_info(contact_id):
+    """Get contact information by ID"""
+    try:
+        response = requests.post(
+            f"{WEBHOOK_URL}crm.contact.get",
+            json={"ID": contact_id}
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("result"):
+                return data["result"]
+    except Exception as e:
+        logging.error(f"Error getting contact info: {e}")
+    
+    return None
+
+def get_deal_info(deal_id):
+    """Get deal information by ID"""
+    try:
+        response = requests.post(
+            f"{WEBHOOK_URL}crm.deal.get",
+            json={"ID": deal_id}
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("result"):
+                return data["result"]
+    except Exception as e:
+        logging.error(f"Error getting deal info: {e}")
+    
+    return None
+
+def update_contact(contact_id, fields):
+    """Update contact fields"""
+    try:
+        response = requests.post(
+            f"{WEBHOOK_URL}crm.contact.update",
+            json={
+                "ID": contact_id,
+                "fields": fields
+            }
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            return data.get("result", False)
+    except Exception as e:
+        logging.error(f"Error updating contact: {e}")
+    
+    return False
+
+def update_deal(deal_id, fields):
+    """Update deal fields"""
+    try:
+        response = requests.post(
+            f"{WEBHOOK_URL}crm.deal.update",
+            json={
+                "ID": deal_id,
+                "fields": fields
+            }
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            return data.get("result", False)
+    except Exception as e:
+        logging.error(f"Error updating deal: {e}")
+    
+    return False
 
 @app.route('/', methods=['POST', 'GET'])
 @app.route('/webhook', methods=['POST', 'GET'])
@@ -210,75 +211,88 @@ def webhook():
         if not contact:
             return jsonify({"status": "error", "message": "Contact not found"}), 404
         
-        # Process contact data
+        # Extract phone number
+        phone = None
+        if contact.get('PHONE'):
+            phones = contact['PHONE']
+            if isinstance(phones, list) and len(phones) > 0:
+                phone = phones[0].get('VALUE')
+            elif isinstance(phones, dict):
+                phone = phones.get('VALUE')
+        
+        # Clean phone number
+        cleaned_phone = clean_phone(phone)
+        
+        # Prepare updates for contact
         contact_updates = {}
         
-        # Get phone number
-        phones = contact.get('PHONE', [])
-        phone = None
-        if phones and isinstance(phones, list) and len(phones) > 0:
-            phone = phones[0].get('VALUE', '')
-        
-        # Generate messenger links if phone exists
-        if phone:
-            normalized_phone = normalize_phone(phone)
-            if normalized_phone:
-                # WhatsApp link
-                contact_updates['UF_CRM_WHATSAPP_LINK'] = f"https://wa.me/{normalized_phone}"
-                
-                # Telegram link
-                contact_updates['UF_CRM_TELEGRAM_LINK'] = f"https://t.me/+{normalized_phone}"
-                
-                logging.info(f"Generated links for contact {contact_id} with phone {normalized_phone}")
+        if cleaned_phone:
+            # Generate messenger links
+            whatsapp_link = f"https://wa.me/{cleaned_phone}"
+            telegram_link = f"https://t.me/+{cleaned_phone}"
+            
+            contact_updates['UF_CRM_1734865844'] = whatsapp_link  # WhatsApp Link field
+            contact_updates['UF_CRM_1734865855'] = telegram_link  # Telegram Link field
+            
+            logging.info(f"Generated links for contact {contact_id}: WA={whatsapp_link}, TG={telegram_link}")
         
         # Update contact if there are changes
         if contact_updates:
             update_contact(contact_id, contact_updates)
         
-        # Process deal data
+        # Prepare updates for deal
         deal_updates = {}
         
-        # Get city from deal - try both field IDs
-        city = deal.get('UF_CRM_CITY') or deal.get('UF_CRM_694F054732342')
-        
-        # Set timezone based on city
+        # Copy city from contact to deal (if exists)
+        city = contact.get('ADDRESS_CITY')
         if city:
-            timezone = get_timezone_from_city(city)
-            if timezone:
-                deal_updates['UF_CRM_TIMEZONE'] = timezone
-                logging.info(f"Set timezone {timezone} for city {city}")
-        
-        # Generate phone links for deal
-        if phone and normalized_phone:
-            # Old text fields (keep for backward compatibility)
-            deal_updates['UF_CRM_CALL_LINK'] = f"tel:+{normalized_phone}"
-            deal_updates['UF_CRM_1767001460714'] = f"https://wa.me/{normalized_phone}"  # Ссылка на вацап
-            deal_updates['UF_CRM_1767001473947'] = f"https://t.me/+{normalized_phone}"  # ссылка на тг
+            deal_updates['UF_CRM_1159'] = city  # City field in deal
+            logging.info(f"Copied city to deal: {city}")
             
-            # New clickable URL fields
-            deal_updates['UF_CRM_WHATSAPP_URL'] = f"https://wa.me/{normalized_phone}"  # WhatsApp (кликабельная)
-            deal_updates['UF_CRM_TELEGRAM_URL'] = f"https://t.me/+{normalized_phone}"  # Telegram (кликабельная)
+            # Determine timezone
+            timezone = get_timezone_by_city(city)
+            if timezone:
+                deal_updates['UF_CRM_1161'] = timezone  # Timezone field
+                logging.info(f"Set timezone: {timezone}")
         
-        # Update deal title: "Name - Job Title"
-        contact_name = contact.get('NAME', '') + ' ' + contact.get('LAST_NAME', '')
-        contact_name = contact_name.strip()
+        # Create call link
+        if cleaned_phone:
+            call_link = f"tel:+{cleaned_phone}"
+            deal_updates['UF_CRM_1163'] = call_link
+            logging.info(f"Created call link: {call_link}")
         
-        job_title = deal.get('TITLE', '')
+        # Create deal title: "Name - Vacancy"
+        contact_name = contact.get('NAME', 'Кандидат')
+        vacancy = deal.get('TITLE', '')
         
-        if contact_name and job_title:
-            new_title = f"{contact_name} - {job_title}"
+        # Only update title if it's not already in the correct format
+        if ' - ' not in vacancy:
+            new_title = f"{contact_name} - {vacancy}"
             deal_updates['TITLE'] = new_title
-            logging.info(f"Updated deal title to: {new_title}")
+            logging.info(f"Updated deal title: {new_title}")
         
         # Update deal if there are changes
         if deal_updates:
             update_deal(deal_id, deal_updates)
         
-        return jsonify({"status": "success", "deal_id": deal_id})
+        return jsonify({
+            "status": "success",
+            "deal_id": deal_id,
+            "contact_id": contact_id,
+            "updates": {
+                "contact": contact_updates,
+                "deal": deal_updates
+            }
+        })
     
     except Exception as e:
         logging.error(f"Error processing webhook: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
+@app.route('/health', methods=['GET'])
+def health():
+    """Health check endpoint"""
+    return jsonify({"status": "ok"})
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=10000)
+    app.run(host='0.0.0.0', port=5000)

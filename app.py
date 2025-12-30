@@ -250,12 +250,14 @@ def webhook():
         
         # Generate phone links for deal
         if phone and normalized_phone:
-            # VatsApp link (using tel: protocol)
+            # Old text fields (keep for backward compatibility)
             deal_updates['UF_CRM_CALL_LINK'] = f"tel:+{normalized_phone}"
-            
-            # Additional links in deal
             deal_updates['UF_CRM_1767001460714'] = f"https://wa.me/{normalized_phone}"  # Ссылка на вацап
             deal_updates['UF_CRM_1767001473947'] = f"https://t.me/+{normalized_phone}"  # ссылка на тг
+            
+            # New clickable URL fields
+            deal_updates['UF_CRM_WHATSAPP_URL'] = f"https://wa.me/{normalized_phone}"  # WhatsApp (кликабельная)
+            deal_updates['UF_CRM_TELEGRAM_URL'] = f"https://t.me/+{normalized_phone}"  # Telegram (кликабельная)
         
         # Update deal title: "Name - Job Title"
         contact_name = contact.get('NAME', '') + ' ' + contact.get('LAST_NAME', '')

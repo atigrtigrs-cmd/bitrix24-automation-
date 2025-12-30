@@ -6,8 +6,8 @@ import re
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 
-# Bitrix24 webhook URL (replace with your actual webhook)
-WEBHOOK_URL = "https://hr-adv.bitrix24.ru/rest/1/k108sy1elhe6hihc/"
+# Bitrix24 webhook URL
+WEBHOOK_URL = "https://hr-adv.bitrix24.ru/rest/1/68owo53rxcs5276q/"
 
 app = Flask(__name__)
 
@@ -224,13 +224,10 @@ def webhook():
             normalized_phone = normalize_phone(phone)
             if normalized_phone:
                 # WhatsApp link
-                contact_updates['UF_CRM_1734540732'] = f"https://wa.me/{normalized_phone}"
+                contact_updates['UF_CRM_WHATSAPP_LINK'] = f"https://wa.me/{normalized_phone}"
                 
                 # Telegram link
-                contact_updates['UF_CRM_1734540751'] = f"https://t.me/+{normalized_phone}"
-                
-                # VatsApp link (using tel: protocol)
-                contact_updates['UF_CRM_1734540770'] = f"tel:+{normalized_phone}"
+                contact_updates['UF_CRM_TELEGRAM_LINK'] = f"https://t.me/+{normalized_phone}"
                 
                 logging.info(f"Generated links for contact {contact_id} with phone {normalized_phone}")
         
@@ -241,15 +238,24 @@ def webhook():
         # Process deal data
         deal_updates = {}
         
-        # Get city from deal
-        city = deal.get('UF_CRM_1734540789')  # City field
+        # Get city from deal - try both field IDs
+        city = deal.get('UF_CRM_CITY') or deal.get('UF_CRM_694F054732342')
         
         # Set timezone based on city
         if city:
             timezone = get_timezone_from_city(city)
             if timezone:
-                deal_updates['UF_CRM_1734540809'] = timezone  # Timezone field
+                deal_updates['UF_CRM_TIMEZONE'] = timezone
                 logging.info(f"Set timezone {timezone} for city {city}")
+        
+        # Generate phone links for deal
+        if phone and normalized_phone:
+            # VatsApp link (using tel: protocol)
+            deal_updates['UF_CRM_CALL_LINK'] = f"tel:+{normalized_phone}"
+            
+            # Additional links in deal
+            deal_updates['UF_CRM_1767001460714'] = f"https://wa.me/{normalized_phone}"  # Ссылка на вацап
+            deal_updates['UF_CRM_1767001473947'] = f"https://t.me/+{normalized_phone}"  # ссылка на тг
         
         # Update deal title: "Name - Job Title"
         contact_name = contact.get('NAME', '') + ' ' + contact.get('LAST_NAME', '')

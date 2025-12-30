@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 import requests
 import logging
 import re
+from datetime import datetime, timedelta
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -475,6 +476,154 @@ def webhook():
     
     except Exception as e:
         logging.error(f"Error processing webhook: {e}", exc_info=True)
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+# ============================================================================
+# STALE DEALS CHECKER
+# ============================================================================
+
+DAYS_THRESHOLD = 2  # Количество РАБОЧИХ дней без изменений
+EXCLUDED_STAGES = ["WON", "LOSE", "UC_3IJV6C"]  # Готов работать, Провал, Кадровый резерв
+
+def count_business_days(start_date, end_date):
+    """Посчитать количество рабочих дней между двумя датами (исключая выходные)"""
+    business_days = 0
+    current_date = start_date
+    
+    while current_date < end_date:
+        if current_date.weekday() < 5:  # Monday to Friday
+            business_days += 1
+        current_date += timedelta(days=1)
+    
+    return business_days
+
+def get_stage_name_for_notification(stage_id):
+    """Получить название стадии по ID"""
+    stage_names = {
+        "NEW": "Новый отклик",
+        "UC_S2PZ7V": "В обработке",
+        "PREPAYMENT_INVOICE": "Телефонное интервью",
+        "EXECUTING": "Перезвонить соискателю",
+        "FINAL_INVOICE": "Отправить инструкцию",
+        "UC_O7P21K": "Название",
+        "WON": "Готов работать",
+        "LOSE": "Провал",
+        "UC_3IJV6C": "Кадровый резерв"
+    }
+    return stage_names.get(stage_id, stage_id)
+
+@app.route('/check-stale-deals', methods=['GET'])
+def check_stale_deals():
+    """Проверить застрявшие сделки и отправить уведомления менеджерам"""
+    
+    try:
+        logging.info("Starting stale deals check...")
+        
+        # Получить все открытые сделки
+        deals = []
+        start = 0
+        
+        while True:
+            response = requests.get(
+                f"{WEBHOOK_URL}crm.deal.list",
+                params={
+                    "start": start,
+                    "filter": {"CLOSED": "N"},
+                    "select": ["ID", "TITLE", "STAGE_ID", "ASSIGNED_BY_ID", "DATE_MODIFY", "MOVED_TIME"]
+                }
+            )
+            
+            result = response.json()
+            
+            if "result" in result and result["result"]:
+                deals.extend(result["result"])
+                start += 50
+                if len(result["result"]) < 50:
+                    break
+            else:
+                break
+        
+        logging.info(f"Found {len(deals)} open deals")
+        
+        # Проверить на застой
+        stale_deals = []
+        now = datetime.now()
+        
+        for deal in deals:
+            if deal.get("STAGE_ID") in EXCLUDED_STAGES:
+                continue
+            
+            date_modify_str = deal.get("DATE_MODIFY") or deal.get("MOVED_TIME")
+            if not date_modify_str:
+                continue
+            
+            try:
+                date_modify = datetime.fromisoformat(date_modify_str.replace("+03:00", ""))
+                business_days_stale = count_business_days(date_modify, now)
+                
+                if business_days_stale >= DAYS_THRESHOLD:
+                    days_stale = (now - date_modify).days
+                    stale_deals.append({
+                        "id": deal["ID"],
+                        "title": deal.get("TITLE", "Без названия"),
+                        "stage_id": deal.get("STAGE_ID"),
+                        "assigned_by_id": deal.get("ASSIGNED_BY_ID"),
+                        "days_stale": days_stale,
+                        "business_days_stale": business_days_stale,
+                        "last_modified": date_modify.strftime("%d.%m.%Y %H:%M")
+                    })
+            except Exception as e:
+                logging.error(f"Error processing deal {deal.get('ID')}: {e}")
+                continue
+        
+        logging.info(f"Found {len(stale_deals)} stale deals")
+        
+        if not stale_deals:
+            return jsonify({"status": "success", "message": "No stale deals found", "count": 0})
+        
+        # Сгруппировать по менеджерам
+        grouped = {}
+        for deal in stale_deals:
+            manager_id = deal["assigned_by_id"]
+            if manager_id not in grouped:
+                grouped[manager_id] = []
+            grouped[manager_id].append(deal)
+        
+        # Отправить уведомления
+        notifications_sent = 0
+        
+        for manager_id, deals_list in grouped.items():
+            message = f"⏰ У вас {len(deals_list)} сделок без изменений более {DAYS_THRESHOLD} рабочих дней:\n\n"
+            
+            for deal in deals_list:
+                message += f"📋 Сделка #{deal['id']}: {deal['title']}\n"
+                message += f"   Стадия: {get_stage_name_for_notification(deal['stage_id'])}\n"
+                message += f"   Без изменений: {deal['business_days_stale']} раб. дн. ({deal['days_stale']} календ. дн., с {deal['last_modified']})\n"
+                message += f"   Ссылка: https://hr-adv.bitrix24.ru/crm/deal/details/{deal['id']}/\n\n"
+            
+            message += "Пожалуйста, обработайте эти сделки или переведите на следующую стадию."
+            
+            try:
+                response = requests.post(
+                    f"{WEBHOOK_URL}im.notify",
+                    json={"to": manager_id, "message": message, "type": "USER"}
+                )
+                
+                if "result" in response.json():
+                    notifications_sent += 1
+                    logging.info(f"Notification sent to user {manager_id}")
+            except Exception as e:
+                logging.error(f"Error sending notification to {manager_id}: {e}")
+        
+        return jsonify({
+            "status": "success",
+            "stale_deals_count": len(stale_deals),
+            "notifications_sent": notifications_sent,
+            "managers_notified": list(grouped.keys())
+        })
+    
+    except Exception as e:
+        logging.error(f"Error in stale deals check: {e}", exc_info=True)
         return jsonify({"status": "error", "message": str(e)}), 500
 
 if __name__ == '__main__':

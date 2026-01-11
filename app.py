@@ -504,6 +504,7 @@ def contact_update():
             data.update(request.args.to_dict())
         
         contact_id = (data.get('contact_id') or 
+                      data.get('data[FIELDS][ID]') or 
                       data.get('FIELDS[ID]') or 
                       data.get('ID') or
                       data.get('id'))

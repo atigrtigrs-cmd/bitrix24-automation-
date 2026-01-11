@@ -479,6 +479,125 @@ def webhook():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 # ============================================================================
+# CONTACT UPDATE HANDLER - Создание ссылок при добавлении телефона
+# ============================================================================
+
+@app.route('/contact-update', methods=['POST', 'GET'])
+def contact_update():
+    """
+    Обработка изменения контакта - создание ссылок WhatsApp/Telegram при добавлении телефона.
+    
+    Вызывается триггером Битрикс24 при изменении контакта.
+    URL: /contact-update?contact_id={{ID}}
+    """
+    try:
+        logging.info(f"Contact update request: method={request.method}")
+        logging.info(f"Request args: {request.args}")
+        logging.info(f"Request form: {request.form}")
+        
+        # Получаем contact_id из разных источников
+        data = {}
+        if request.is_json:
+            data = request.json or {}
+        else:
+            data = request.form.to_dict()
+            data.update(request.args.to_dict())
+        
+        contact_id = (data.get('contact_id') or 
+                      data.get('FIELDS[ID]') or 
+                      data.get('ID') or
+                      data.get('id'))
+        
+        if not contact_id:
+            logging.warning(f"No contact ID in request. Full data: {data}")
+            return jsonify({"status": "error", "message": "No contact ID provided"}), 400
+        
+        logging.info(f"Processing contact {contact_id}")
+        
+        # Получаем данные контакта
+        contact = get_contact_info(contact_id)
+        if not contact:
+            return jsonify({"status": "error", "message": "Contact not found"}), 404
+        
+        # Получаем телефон
+        phones = contact.get('PHONE', [])
+        phone = None
+        if phones and isinstance(phones, list) and len(phones) > 0:
+            phone = phones[0].get('VALUE', '')
+        
+        if not phone:
+            logging.info(f"Contact {contact_id} has no phone, skipping")
+            return jsonify({"status": "skipped", "message": "No phone in contact", "contact_id": contact_id})
+        
+        normalized_phone = normalize_phone(phone)
+        if not normalized_phone:
+            logging.warning(f"Could not normalize phone: {phone}")
+            return jsonify({"status": "error", "message": "Invalid phone number"}), 400
+        
+        # Генерируем ссылки
+        whatsapp_link = f"https://wa.me/{normalized_phone}"
+        telegram_link = f"https://t.me/+{normalized_phone}"
+        
+        # Обновляем контакт
+        contact_updates = {
+            'UF_CRM_WHATSAPP_LINK': whatsapp_link,
+            'UF_CRM_TELEGRAM_LINK': telegram_link
+        }
+        update_contact(contact_id, contact_updates)
+        logging.info(f"Updated contact {contact_id} with messenger links")
+        
+        # Находим все сделки, связанные с этим контактом
+        deals_updated = []
+        try:
+            response = requests.get(
+                f"{WEBHOOK_URL}crm.deal.list",
+                params={
+                    "filter[CONTACT_ID]": contact_id,
+                    "select[]": ["ID", "TITLE"]
+                }
+            )
+            deals = response.json().get('result', [])
+            
+            for deal in deals:
+                deal_id = deal.get('ID')
+                deal_updates = {
+                    'UF_CRM_CALL_LINK': f"tel:+{normalized_phone}",
+                    'UF_CRM_1767001460714': whatsapp_link,  # Ссылка на вацап
+                    'UF_CRM_1767001473947': telegram_link,  # ссылка на тг
+                    'UF_CRM_WHATSAPP_URL': whatsapp_link,   # WhatsApp (кликабельная)
+                    'UF_CRM_TELEGRAM_URL': telegram_link    # Telegram (кликабельная)
+                }
+                
+                # Также попробуем определить город и часовой пояс
+                city = contact.get('ADDRESS_CITY')
+                if city:
+                    deal_updates['UF_CRM_CITY'] = city
+                    timezone = get_timezone_from_city(city)
+                    if timezone:
+                        deal_updates['UF_CRM_TIMEZONE'] = timezone
+                
+                success = update_deal(deal_id, deal_updates)
+                if success:
+                    deals_updated.append(deal_id)
+                    logging.info(f"Updated deal {deal_id} with messenger links")
+        except Exception as e:
+            logging.error(f"Error updating deals for contact {contact_id}: {e}")
+        
+        return jsonify({
+            "status": "success",
+            "contact_id": contact_id,
+            "phone": normalized_phone,
+            "whatsapp": whatsapp_link,
+            "telegram": telegram_link,
+            "deals_updated": deals_updated
+        })
+    
+    except Exception as e:
+        logging.error(f"Error processing contact update: {e}", exc_info=True)
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# ============================================================================
 # STALE DEALS CHECKER
 # ============================================================================
 
